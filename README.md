@@ -56,7 +56,9 @@
 ModListHider/
 ├── mod_manifest.json    ← Mod 清单，游戏加载用
 ├── ModListHider.dll     ← 编译后的程序集
-└── README.md            ← 本说明文件
+├── README.md            ← 本说明文件
+└── toRelease/          ← 各版本 Release zip 发布包
+    └── ModListHider-v0.3.0.zip
 ```
 
 ---
