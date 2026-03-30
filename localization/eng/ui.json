@@ -1,0 +1,8 @@
+{
+  "MOD_LIST_HIDER": {
+    "TOOLTIP_OPEN": "Show this mod in multiplayer",
+    "TOOLTIP_CLOSED": "Hide this mod from multiplayer",
+    "VANILLA_TOOLTIP_ON": "Vanilla mode: ON\nMultiplayer handshake sends no mods; peers see you as unmodded.\nMods still run locally (skins, UI, etc.).\nClick to turn OFF; then each mod’s eye icon controls visibility in others’ mod lists.",
+    "VANILLA_TOOLTIP_OFF": "Vanilla mode: OFF\nEach mod’s eye icon (right of the row) controls whether that mod appears in others’ lists (open = visible, closed = hidden).\nTurn ON vanilla mode (this icon) to join unmodded players or rooms."
+  }
+}
