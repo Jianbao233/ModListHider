@@ -5,146 +5,134 @@ using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 
+using System;
+using System.IO;
+using Godot;
+
 namespace ModListHider.UI
 {
     /// <summary>
-    /// Injects a global Vanilla Mode toggle button into the modding screen header.
-    ///
-    /// Vanilla Mode ON  = pretend no mods at all (欺骗服务端联机检测)
-    /// Vanilla Mode OFF = per-mod eye icons work as before
-    ///
-    /// Detects the NModdingScreen via AddChild(..., deepChild), then schedules
-    /// button injection on the first frame so parent layout is ready.
+    /// Safe UI injection for Android.
+    /// Instead of patching AddChild (which crashes on Android), this class
+    /// periodically scans the scene tree for the modding screen and injects
+    /// the Vanilla Mode toggle button when found.
     /// </summary>
-    [HarmonyPatch]
-    internal static class VanillaModeTogglePatch
+    public partial class VanillaModeToggleInjector : Node
     {
-        /// <summary>Set once on first hit so we never inject twice.</summary>
-        private static bool _injected;
+        private const float ScanInterval = 0.5f;
+        private const float MaxScanTime = 30f;
+        private float _scanTimer;
+        private float _totalScanTime;
+        private bool _injected;
 
-        private static MethodBase TargetMethod()
+        public override void _Ready()
         {
-            return AccessTools.Method(typeof(Node), "AddChild",
-                new[] { typeof(Node), typeof(bool), typeof(Node.InternalMode) });
+            GD.Print("[ModListHider] VanillaModeToggleInjector started. Will scan for modding screen...");
         }
 
-        private static bool Prepare() => TargetMethod() != null;
-
-        [HarmonyPostfix]
-        private static void Postfix(Node __instance, Node node)
+        public override void _Process(double delta)
         {
             if (_injected) return;
 
+            _scanTimer += (float)delta;
+            _totalScanTime += (float)delta;
+
+            if (_scanTimer < ScanInterval) return;
+            _scanTimer = 0f;
+
+            // Give up after MaxScanTime seconds
+            if (_totalScanTime > MaxScanTime)
+            {
+                GD.Print("[ModListHider] VanillaModeToggleInjector: giving up, modding screen not found");
+                QueueFree();
+                return;
+            }
+
+            TryInject();
+        }
+
+        private void TryInject()
+        {
+            var screen = FindModdingScreen(GetTree()?.Root);
+            if (screen == null) return;
+
+            GD.Print($"[ModListHider] Found modding screen: {screen.GetType().Name}");
+
             try
             {
-                // The page itself gets added, or a child deep in the page tree.
-                if (node != null && LooksLikeModdingScreen(node))
-                    ScheduleInject(node);
-                else if (__instance != null && LooksLikeModdingScreen(__instance))
-                    ScheduleInject(__instance);
+                if (screen.FindChild("VanillaModeToggle", true, false) != null)
+                {
+                    _injected = true;
+                    GD.Print("[ModListHider] VanillaModeToggle already injected, stopping scanner");
+                    QueueFree();
+                    return;
+                }
+
+                Config.ModListHiderConfig.Instance.Load();
+                bool vanilla = Config.ModListHiderConfig.Instance.VanillaMode;
+
+                var btn = new VanillaModeToggleNode();
+                btn.Name = "VanillaModeToggle";
+                btn.Configure(vanilla);
+
+                // Position at top-left corner of the screen
+                btn.SetAnchorsPreset(Control.LayoutPreset.TopLeft);
+                btn.OffsetLeft = 16;
+                btn.OffsetTop = 16;
+                btn.OffsetRight = 16 + 48;
+                btn.OffsetBottom = 16 + 48;
+
+                screen.AddChild(btn);
+
+                _injected = true;
+                GD.Print($"[ModListHider] VanillaMode toggle injected. VanillaMode={vanilla}");
+                TryAppendDebug($"[ModListHider] VanillaMode toggle injected at {DateTime.Now}\n");
+
+                // Stop scanning after injection
+                QueueFree();
             }
             catch (Exception ex)
             {
-                TryAppendDebug($"VanillaModeToggle Postfix: {ex.Message}\n");
+                GD.PrintErr($"[ModListHider] VanillaModeToggleInjector failed: {ex.Message}");
+                TryAppendDebug($"Inject failed: {ex.Message}\n{ex.StackTrace}\n");
             }
         }
 
-        /// <summary>
-        /// Approximate detection: NModdingScreen is a Control with child "InstalledModsTitle"
-        /// (the "Installed Mods" label at the top of the page).
-        /// </summary>
-        private static bool LooksLikeModdingScreen(Node n)
+        private Node? FindModdingScreen(Node? root)
         {
-            if (n.FindChild("InstalledModsTitle", true, false) != null)
-                return true;
-            // Fallback: look for the mods border that wraps the list
-            if (n.FindChild("ModsBorder", true, false) != null)
-                return true;
-            // Also match by type name
-            var tn = n.GetType().Name;
-            return tn == "NModdingScreen" || tn.EndsWith(".NModdingScreen", StringComparison.Ordinal);
-        }
+            if (root == null) return null;
 
-        private static void ScheduleInject(Node screenNode)
-        {
-            _injected = true;
+            // Check if this node looks like the modding screen
+            if (LooksLikeModdingScreen(root))
+                return root;
 
-            void InjectOnce()
+            // Search children recursively
+            foreach (var child in root.GetChildren())
             {
-                try
-                {
-                    if (!GodotObject.IsInstanceValid(screenNode))
-                        return;
-                    if (screenNode.FindChild("VanillaModeToggle", true, false) != null)
-                        return;
-
-                    Config.ModListHiderConfig.Instance.Load();
-                    bool vanilla = Config.ModListHiderConfig.Instance.VanillaMode;
-
-                    // Inject directly into screenNode for maximum control
-                    var btn = new VanillaModeToggleNode();
-                    btn.Name = "VanillaModeToggle";
-                    btn.Configure(vanilla);
-
-                    // Place at (0,0) of screenNode so user can see exact position
-                    btn.SetAnchorsPreset(Control.LayoutPreset.TopLeft);
-                    btn.OffsetLeft = 0;
-                    btn.OffsetTop = 0;
-                    btn.OffsetRight = 48;
-                    btn.OffsetBottom = 48;
-
-                    screenNode.AddChildSafely(btn);
-                    TryAppendDebug($"[ModListHider] VanillaMode toggle injected. State={vanilla}, parent={screenNode.GetType().Name}\n");
-                    GD.Print($"[ModListHider] VanillaMode toggle injected. VanillaMode={vanilla}, parent={screenNode.GetType().Name}");
-                }
-                catch (Exception ex)
-                {
-                    TryAppendDebug($"VanillaModeToggle InjectOnce: {ex.Message}\n{ex.StackTrace}\n");
-                }
+                var found = FindModdingScreen(child);
+                if (found != null) return found;
             }
 
-            InjectOnce();
-            Callable.From(InjectOnce).CallDeferred();
-
-            // Backup: re-check in 2s in case page wasn't fully laid out yet
-            var tree = screenNode.GetTree();
-            if (tree == null) return;
-            var timer = tree.CreateTimer(2.0f);
-            timer.Timeout += () =>
-            {
-                InjectOnce();
-            };
-        }
-
-        /// <summary>
-        /// Find the ModsBorder (scroll container with the mod list) inside the screen.
-        /// Injecting into the border puts the button at the top-left of the list area,
-        /// not affected by the description panel in the top-right.
-        /// </summary>
-        private static Node? FindModsBorder(Node root)
-        {
-            // Try named children first
-            var border = root.GetNodeOrNull<Node>("%ModsBorder");
-            if (border != null) return border;
-
-            // Search recursively for ModsBorder
-            return FindChildByName(root, "ModsBorder");
-        }
-
-        private static Node? FindChildByName(Node parent, string name)
-        {
-            foreach (var child in parent.GetChildren())
-            {
-                if (child.Name == name)
-                    return child;
-                var found = FindChildByName(child, name);
-                if (found != null)
-                    return found;
-            }
             return null;
         }
 
-        private static void TryAppendDebug(string line)
+        private bool LooksLikeModdingScreen(Node n)
+        {
+            // Check for known child names
+            if (n.FindChild("InstalledModsTitle", true, false) != null)
+                return true;
+            if (n.FindChild("ModsBorder", true, false) != null)
+                return true;
+
+            // Check type name
+            var tn = n.GetType().Name;
+            if (tn == "NModdingScreen" || tn.EndsWith(".NModdingScreen", StringComparison.Ordinal))
+                return true;
+
+            return false;
+        }
+
+        private void TryAppendDebug(string line)
         {
             try
             {

@@ -1,6 +1,6 @@
 # 联机屏蔽 / MP Mod Hider + Vanilla Mode
 
-**当前版本 v0.3.0**
+**当前版本 v0.3.1**
 
 > English documentation below.
 
@@ -33,7 +33,7 @@
 
 ## 安装方式
 
-1. 下载本 Release 的 `ModListHider-v0.3.0.zip`
+1. 下载本 Release 的 `ModListHider-v0.3.1.zip`
 2. 解压，将 `ModListHider.dll` 和 `mod_manifest.json` 放入：
    ```
    <你的SlayTheSpire2安装目录>\steamapps\common\Slay the Spire 2\mods\ModListHider\
@@ -58,7 +58,7 @@ ModListHider/
 ├── ModListHider.dll     ← 编译后的程序集
 ├── README.md            ← 本说明文件
 └── toRelease/          ← 各版本 Release zip 发布包
-    └── ModListHider-v0.3.0.zip
+    └── ModListHider-v0.3.1.zip
 ```
 
 ---
@@ -74,7 +74,7 @@ ModListHider/
 
 # MP Mod Hider + Vanilla Mode (English)
 
-**Current version v0.3.0**
+**Current version v0.3.1**
 
 ---
 
@@ -103,7 +103,7 @@ A **large eye icon** in the **top-left corner** of the modding screen toggles **
 
 ## Installation
 
-1. Download `ModListHider-v0.3.0.zip` from this release
+1. Download `ModListHider-v0.3.1.zip` from this release
 2. Extract and place both files into:
    ```
    <YourSlayTheSpire2Path>\steamapps\common\Slay the Spire 2\mods\ModListHider\
@@ -125,12 +125,16 @@ A **large eye icon** in the **top-left corner** of the modding screen toggles **
 ## Technical Details
 
 - Built with [Lib.Harmony](https://github.com/pardeike/Harmony) v2.3.3
-- Targets .NET 8.0 / Godot.NET SDK 4.5.1
+- Targets .NET 9 / Godot.NET SDK 4.5.1
 - `affects_gameplay: false` — this mod does not alter card values, combat mechanics, or run outcomes
 
 ---
 
 ## Changelog
+
+### v0.3.1
+- **Fix**: Android 端入口点问题 —— 改用 `[ModuleInitializer]` 确保 DLL 加载时自动初始化（之前 Android 上眼睛图标和 Vanilla Mode 注入失效）
+- 保持与 PC 端行为一致
 
 ### v0.3.0
 - **New**: Vanilla Mode — hide all mods from MP handshake to join vanilla players

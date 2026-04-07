@@ -1,7 +1,7 @@
 {
   "id": "ModListHider",
   "pck_name": "ModListHider",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "name": "联机屏蔽 / MP Mod Hider + Vanilla Mode",
   "author": "煎包 / Claude-4.6-opus",
   "description": "Vanilla Mode: 欺骗服务端联机检测，与原版玩家联机\nVanilla Mode: Hide ALL mods from MP handshake to join vanilla players.\nIndividual eye icons per mod still work.\n\nEye Icon: Hide individual mods from MP mod list via eye icon in modding screen.",
