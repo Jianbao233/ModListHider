@@ -7,8 +7,12 @@ namespace ModListHider.UI
     {
         public const string EyeOpenRelativeToModDir = "ModListHider_eye_open.png";
         public const string EyeClosedRelativeToModDir = "ModListHider_eye_closed.png";
+        public const string EyeOpenSmallRelativeToModDir = "eye_open_small.png";
+        public const string EyeClosedSmallRelativeToModDir = "eye_closed_small.png";
 
         public const string EyeOpenRes = "res://ModListHider/assets/icons/eye_open.png";
         public const string EyeClosedRes = "res://ModListHider/assets/icons/eye_closed.png";
+        public const string EyeOpenSmallRes = "res://ModListHider/assets/icons/eye_open_small.png";
+        public const string EyeClosedSmallRes = "res://ModListHider/assets/icons/eye_closed_small.png";
     }
 }

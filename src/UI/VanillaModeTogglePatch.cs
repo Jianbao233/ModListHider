@@ -1,70 +1,54 @@
 using System;
 using System.IO;
-using System.Reflection;
-using Godot;
-using HarmonyLib;
-using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
-
-using System;
-using System.IO;
 using Godot;
 
 namespace ModListHider.UI
 {
     /// <summary>
-    /// Safe UI injection for Android.
-    /// Instead of patching AddChild (which crashes on Android), this class
-    /// periodically scans the scene tree for the modding screen and injects
-    /// the Vanilla Mode toggle button when found.
+    /// Persistent VanillaMode button injector.
+    /// Keeps scanning to handle screen rebuilds after game UI flow changes.
     /// </summary>
     public partial class VanillaModeToggleInjector : Node
     {
-        private const float ScanInterval = 0.5f;
-        private const float MaxScanTime = 30f;
+        private const float ScanInterval = 0.35f;
+        private const string ToggleNodeName = "VanillaModeToggle";
         private float _scanTimer;
-        private float _totalScanTime;
-        private bool _injected;
+        private ulong _lastScreenId;
 
         public override void _Ready()
         {
-            GD.Print("[ModListHider] VanillaModeToggleInjector started. Will scan for modding screen...");
+            GD.Print("[ModListHider] VanillaModeToggleInjector started (persistent mode).");
         }
 
         public override void _Process(double delta)
         {
-            if (_injected) return;
-
             _scanTimer += (float)delta;
-            _totalScanTime += (float)delta;
-
             if (_scanTimer < ScanInterval) return;
             _scanTimer = 0f;
-
-            // Give up after MaxScanTime seconds
-            if (_totalScanTime > MaxScanTime)
-            {
-                GD.Print("[ModListHider] VanillaModeToggleInjector: giving up, modding screen not found");
-                QueueFree();
-                return;
-            }
-
             TryInject();
         }
 
         private void TryInject()
         {
             var screen = FindModdingScreen(GetTree()?.Root);
-            if (screen == null) return;
-
-            GD.Print($"[ModListHider] Found modding screen: {screen.GetType().Name}");
+            if (screen == null)
+            {
+                _lastScreenId = 0;
+                return;
+            }
 
             try
             {
-                if (screen.FindChild("VanillaModeToggle", true, false) != null)
+                var currentScreenId = screen.GetInstanceId();
+                if (_lastScreenId != currentScreenId)
                 {
-                    _injected = true;
-                    GD.Print("[ModListHider] VanillaModeToggle already injected, stopping scanner");
-                    QueueFree();
+                    _lastScreenId = currentScreenId;
+                    GD.Print($"[ModListHider] Tracking modding screen: {screen.GetType().Name} ({currentScreenId})");
+                }
+
+                if (screen.FindChild(ToggleNodeName, true, false) is VanillaModeToggleNode existing)
+                {
+                    EnsureTogglePlacement(existing);
                     return;
                 }
 
@@ -72,24 +56,13 @@ namespace ModListHider.UI
                 bool vanilla = Config.ModListHiderConfig.Instance.VanillaMode;
 
                 var btn = new VanillaModeToggleNode();
-                btn.Name = "VanillaModeToggle";
+                btn.Name = ToggleNodeName;
                 btn.Configure(vanilla);
-
-                // Position at top-left corner of the screen
-                btn.SetAnchorsPreset(Control.LayoutPreset.TopLeft);
-                btn.OffsetLeft = 16;
-                btn.OffsetTop = 16;
-                btn.OffsetRight = 16 + 48;
-                btn.OffsetBottom = 16 + 48;
+                EnsureTogglePlacement(btn);
 
                 screen.AddChild(btn);
-
-                _injected = true;
-                GD.Print($"[ModListHider] VanillaMode toggle injected. VanillaMode={vanilla}");
+                GD.Print($"[ModListHider] VanillaMode toggle injected. VanillaMode={vanilla}, parent={screen.GetType().Name}");
                 TryAppendDebug($"[ModListHider] VanillaMode toggle injected at {DateTime.Now}\n");
-
-                // Stop scanning after injection
-                QueueFree();
             }
             catch (Exception ex)
             {
@@ -98,38 +71,66 @@ namespace ModListHider.UI
             }
         }
 
+        private static void EnsureTogglePlacement(Control btn)
+        {
+            btn.ZIndex = 80;
+            btn.SetAnchorsPreset(Control.LayoutPreset.TopLeft);
+            btn.AnchorLeft = 0f;
+            btn.AnchorRight = 0f;
+            btn.AnchorTop = 0f;
+            btn.AnchorBottom = 0f;
+            btn.OffsetLeft = 18f;
+            btn.OffsetTop = 18f;
+            btn.OffsetRight = 66f;
+            btn.OffsetBottom = 66f;
+        }
+
         private Node? FindModdingScreen(Node? root)
         {
             if (root == null) return null;
 
-            // Check if this node looks like the modding screen
-            if (LooksLikeModdingScreen(root))
+            // Prefer strict type match first to avoid injecting into lookalike nodes.
+            var byType = FindModdingScreenByType(root);
+            if (byType != null)
+                return byType;
+
+            // Fallback for future game updates if type name changes.
+            return FindModdingScreenBySignature(root);
+        }
+
+        private Node? FindModdingScreenByType(Node root)
+        {
+            var tn = root.GetType().Name;
+            if (tn == "NModdingScreen" || tn.EndsWith(".NModdingScreen", StringComparison.Ordinal))
                 return root;
 
-            // Search children recursively
             foreach (var child in root.GetChildren())
             {
-                var found = FindModdingScreen(child);
+                var found = FindModdingScreenByType(child);
                 if (found != null) return found;
             }
 
             return null;
         }
 
-        private bool LooksLikeModdingScreen(Node n)
+        private Node? FindModdingScreenBySignature(Node root)
         {
-            // Check for known child names
-            if (n.FindChild("InstalledModsTitle", true, false) != null)
-                return true;
-            if (n.FindChild("ModsBorder", true, false) != null)
-                return true;
+            if (LooksLikeModdingScreen(root))
+                return root;
 
-            // Check type name
-            var tn = n.GetType().Name;
-            if (tn == "NModdingScreen" || tn.EndsWith(".NModdingScreen", StringComparison.Ordinal))
-                return true;
+            foreach (var child in root.GetChildren())
+            {
+                var found = FindModdingScreenBySignature(child);
+                if (found != null) return found;
+            }
 
-            return false;
+            return null;
+        }
+
+        private static bool LooksLikeModdingScreen(Node n)
+        {
+            return n.FindChild("InstalledModsTitle", true, false) != null
+                && n.FindChild("ModsBorder", true, false) != null;
         }
 
         private void TryAppendDebug(string line)

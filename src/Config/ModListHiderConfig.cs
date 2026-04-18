@@ -14,11 +14,16 @@ namespace ModListHider.Config
     /// </summary>
     internal sealed class ModListHiderConfig
     {
+        private static readonly StringComparer KeyComparer = StringComparer.OrdinalIgnoreCase;
+        private static readonly Regex VersionedModEntryRegex = new(
+            @"^(?<id>.+)-(?<ver>\d+(?:\.\d+)*(?:[-+][0-9A-Za-z.-]+)?)$",
+            RegexOptions.Compiled);
+
         private static readonly ModListHiderConfig _instance = new ModListHiderConfig();
         public static ModListHiderConfig Instance => _instance;
 
         /// <summary>Set of mod IDs that should be hidden from multiplayer.</summary>
-        public HashSet<string> HiddenModIds { get; private set; } = new();
+        public HashSet<string> HiddenModIds { get; private set; } = new(KeyComparer);
 
         /// <summary>
         /// Vanilla Mode: when true, pretends no mods are loaded at all.
@@ -26,6 +31,9 @@ namespace ModListHider.Config
         /// Individual eye icons still work (per-mod toggle) when this is false.
         /// </summary>
         public bool VanillaMode { get; set; }
+
+        /// <summary>Verbose diagnostics switch for UI injection/layout issues.</summary>
+        public bool DebugMode { get; set; }
 
         /// <summary>Path to the hidden_mods.json file.</summary>
         private readonly string _configPath;
@@ -37,7 +45,43 @@ namespace ModListHider.Config
             _configPath = Path.Combine(configDir, "hidden_mods.json");
         }
 
-        public bool IsHidden(string modId) => HiddenModIds.Contains(modId);
+        public bool IsHidden(string modId)
+        {
+            var key = NormalizeKey(modId);
+            return !string.IsNullOrEmpty(key) && HiddenModIds.Contains(key);
+        }
+
+        public bool IsAnyHidden(params string?[] candidates)
+        {
+            foreach (var c in candidates)
+            {
+                if (IsHidden(c ?? string.Empty))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Legacy migration: replace a display-name key with stable manifest id key.
+        /// Returns true if HiddenModIds changed.
+        /// </summary>
+        public bool MigrateLegacyHiddenKey(string legacyKey, string stableKey)
+        {
+            var oldKey = NormalizeKey(legacyKey);
+            var newKey = NormalizeKey(stableKey);
+            if (string.IsNullOrEmpty(oldKey) || string.IsNullOrEmpty(newKey))
+                return false;
+
+            if (KeyComparer.Equals(oldKey, newKey))
+                return false;
+
+            if (!HiddenModIds.Remove(oldKey))
+                return false;
+
+            HiddenModIds.Add(newKey);
+            GD.Print($"[ModListHider] Migrated hidden key '{oldKey}' -> '{newKey}'");
+            return true;
+        }
 
         /// <summary>
         /// 联机侧条目常为 <c>ManifestId-1.0.0</c>，而 UI 存的是 manifest 的 <c>id</c>（无版本）。
@@ -45,32 +89,47 @@ namespace ModListHider.Config
         /// </summary>
         public bool ShouldStripFromMultiplayerList(string entry)
         {
-            if (string.IsNullOrEmpty(entry))
+            var normalizedEntry = NormalizeKey(entry);
+            if (string.IsNullOrEmpty(normalizedEntry))
                 return false;
-            if (HiddenModIds.Contains(entry))
+            if (HiddenModIds.Contains(normalizedEntry))
+                return true;
+
+            var baseId = TryExtractBaseModId(normalizedEntry);
+            if (!string.IsNullOrEmpty(baseId) && HiddenModIds.Contains(baseId))
                 return true;
 
             foreach (var h in HiddenModIds)
             {
-                if (string.IsNullOrEmpty(h))
+                if (string.IsNullOrEmpty(h) || normalizedEntry.Length <= h.Length + 1)
                     continue;
-                if (entry.Length <= h.Length + 1)
+                if (!normalizedEntry.StartsWith(h + "-", StringComparison.OrdinalIgnoreCase))
                     continue;
-                if (!entry.StartsWith(h + "-", StringComparison.Ordinal))
-                    continue;
-                var suffix = entry.Substring(h.Length + 1);
-                if (IsVersionSuffix(suffix))
+                var suffix = normalizedEntry.Substring(h.Length + 1);
+                if (LooksLikeVersionSuffix(suffix))
                     return true;
             }
 
             return false;
         }
 
-        /// <summary>Suffix after "ModId-" when it looks like a version token (e.g. 1.0.0).</summary>
-        private static bool IsVersionSuffix(string s)
+        private static string NormalizeKey(string? raw)
         {
-            // Wire format observed: NecrobinderOstyAnimMod-1.0.0
-            return Regex.IsMatch(s, @"^\d+(\.\d+)*$");
+            return raw?.Trim() ?? string.Empty;
+        }
+
+        private static string TryExtractBaseModId(string entry)
+        {
+            var match = VersionedModEntryRegex.Match(entry);
+            if (!match.Success)
+                return entry;
+            return NormalizeKey(match.Groups["id"].Value);
+        }
+
+        /// <summary>Suffix after "ModId-" when it looks like a version token (e.g. 1.0.0-beta.1).</summary>
+        private static bool LooksLikeVersionSuffix(string s)
+        {
+            return Regex.IsMatch(s, @"^\d+(\.\d+)*(?:[-+][0-9A-Za-z.-]+)?$");
         }
 
         /// <summary>
@@ -88,13 +147,17 @@ namespace ModListHider.Config
                 var doc = JsonDocument.Parse(json);
                 var root = doc.RootElement;
 
-                var fresh = new HashSet<string>();
+                var fresh = new HashSet<string>(KeyComparer);
                 if (root.TryGetProperty("hidden_mods", out var mods) && mods.ValueKind == JsonValueKind.Array)
                 {
                     foreach (var item in mods.EnumerateArray())
                     {
                         if (item.ValueKind == JsonValueKind.String)
-                            fresh.Add(item.GetString()!);
+                        {
+                            var key = NormalizeKey(item.GetString());
+                            if (!string.IsNullOrEmpty(key))
+                                fresh.Add(key);
+                        }
                     }
                 }
 
@@ -111,15 +174,19 @@ namespace ModListHider.Config
 
         public void SetHidden(string modId, bool hidden)
         {
+            var key = NormalizeKey(modId);
+            if (string.IsNullOrEmpty(key))
+                return;
+
             if (hidden)
             {
-                if (HiddenModIds.Add(modId))
-                    GD.Print($"[ModListHider] Hidden mod: {modId}");
+                if (HiddenModIds.Add(key))
+                    GD.Print($"[ModListHider] Hidden mod: {key}");
             }
             else
             {
-                if (HiddenModIds.Remove(modId))
-                    GD.Print($"[ModListHider] Unhidden mod: {modId}");
+                if (HiddenModIds.Remove(key))
+                    GD.Print($"[ModListHider] Unhidden mod: {key}");
             }
         }
 
@@ -152,7 +219,11 @@ namespace ModListHider.Config
                     foreach (var item in mods.EnumerateArray())
                     {
                         if (item.ValueKind == JsonValueKind.String)
-                            HiddenModIds.Add(item.GetString()!);
+                        {
+                            var key = NormalizeKey(item.GetString());
+                            if (!string.IsNullOrEmpty(key))
+                                HiddenModIds.Add(key);
+                        }
                     }
                 }
 
@@ -160,7 +231,10 @@ namespace ModListHider.Config
                 VanillaMode = root.TryGetProperty("vanilla_mode", out var vm)
                     && vm.ValueKind == JsonValueKind.True;
 
-                GD.Print($"[ModListHider] Config loaded. Hidden mods: {HiddenModIds.Count}, VanillaMode: {VanillaMode}");
+                DebugMode = root.TryGetProperty("debug_mode", out var dm)
+                    && dm.ValueKind == JsonValueKind.True;
+
+                GD.Print($"[ModListHider] Config loaded. Hidden mods: {HiddenModIds.Count}, VanillaMode: {VanillaMode}, DebugMode: {DebugMode}");
             }
             catch (Exception ex)
             {
@@ -178,7 +252,8 @@ namespace ModListHider.Config
 
                 var obj = new ConfigData { 
                     hidden_mods = new List<string>(HiddenModIds),
-                    vanilla_mode = VanillaMode
+                    vanilla_mode = VanillaMode,
+                    debug_mode = DebugMode
                 };
                 var options = new JsonSerializerOptions { WriteIndented = true };
                 string json = JsonSerializer.Serialize(obj, options);
@@ -195,6 +270,13 @@ namespace ModListHider.Config
             VanillaMode = on;
             Save();
             GD.Print($"[ModListHider] VanillaMode set to: {on}");
+        }
+
+        public void SetDebugMode(bool on)
+        {
+            DebugMode = on;
+            Save();
+            GD.Print($"[ModListHider] DebugMode set to: {on}");
         }
 
         /// <summary>
@@ -218,7 +300,11 @@ namespace ModListHider.Config
                     foreach (var item in hidden.EnumerateArray())
                     {
                         if (item.ValueKind == JsonValueKind.String)
-                            HiddenModIds.Add(item.GetString()!);
+                        {
+                            var key = NormalizeKey(item.GetString());
+                            if (!string.IsNullOrEmpty(key))
+                                HiddenModIds.Add(key);
+                        }
                     }
                     if (HiddenModIds.Count > 0)
                     {
@@ -240,6 +326,9 @@ namespace ModListHider.Config
 
             [JsonPropertyName("vanilla_mode")]
             public bool vanilla_mode { get; set; }
+
+            [JsonPropertyName("debug_mode")]
+            public bool debug_mode { get; set; }
         }
     }
 }

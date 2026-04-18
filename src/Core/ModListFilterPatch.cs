@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using HarmonyLib;
 using Godot;
@@ -16,19 +18,52 @@ namespace ModListHider.Core
     [HarmonyPatch]
     internal static class ModListFilterPatch
     {
-        private static MethodBase TargetMethod()
+        private static IEnumerable<MethodBase> TargetMethods()
         {
             var t = AccessTools.TypeByName("MegaCrit.Sts2.Core.Modding.ModManager")
                 ?? AccessTools.TypeByName("ModManager");
-            if (t == null) return null;
+            if (t == null)
+                yield break;
 
-            return t.GetMethod("GetGameplayRelevantModNameList", BindingFlags.Public | BindingFlags.Static)
-                ?? t.GetMethod("GetModNameList", BindingFlags.Public | BindingFlags.Static);
+            var flags = BindingFlags.Public | BindingFlags.Static;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+
+            string[] preferred =
+            {
+                "GetGameplayRelevantModNameList",
+                "GetModNameList",
+                "GetLoadedModNameList",
+                "GetEnabledModNameList"
+            };
+
+            foreach (var name in preferred)
+            {
+                var m = t.GetMethod(name, flags);
+                if (m != null && seen.Add(m.Name))
+                    yield return m;
+            }
+
+            // Fallback for future game updates: patch any no-arg static List<string> mod-list getter.
+            foreach (var m in t.GetMethods(flags))
+            {
+                if (m.ReturnType != typeof(List<string>))
+                    continue;
+                if (m.GetParameters().Length != 0)
+                    continue;
+                if (m.Name.IndexOf("Mod", StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+                if (m.Name.IndexOf("List", StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+                if (!seen.Add(m.Name))
+                    continue;
+
+                yield return m;
+            }
         }
 
         private static bool Prepare()
         {
-            return TargetMethod() != null;
+            return TargetMethods().Any();
         }
 
         private static void Postfix(ref List<string> __result)

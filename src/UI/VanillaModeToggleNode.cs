@@ -29,7 +29,6 @@ namespace ModListHider.UI
             CustomMinimumSize = new Vector2(48, 48);
             UpdateTooltip();
             UpdateVisuals();
-            Callable.From(ReapplyAnchors).CallDeferred();
         }
 
         private void UpdateTooltip()
@@ -131,22 +130,6 @@ namespace ModListHider.UI
         {
             IsVanillaOn = vanillaMode;
             UpdateTooltip();
-            UpdateVisuals();
-        }
-
-        private void ReapplyAnchors()
-        {
-            if (!IsInsideTree())
-                return;
-            // Place at (0,0) of screenNode - adjust based on user feedback
-            AnchorLeft = 0.0f;
-            AnchorRight = 0.0f;
-            AnchorTop = 0.0f;
-            AnchorBottom = 0.0f;
-            OffsetLeft = 0;
-            OffsetTop = 0;
-            OffsetRight = 48;
-            OffsetBottom = 48;
             UpdateVisuals();
         }
 

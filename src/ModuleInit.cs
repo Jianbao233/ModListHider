@@ -11,6 +11,10 @@ namespace ModListHider
     /// </summary>
     public static class ModuleInit
     {
+        private const string VanillaInjectorNodeName = "ModListHider_VanillaInjector";
+        private const string RowInjectorNodeName = "ModListHider_RowInjector";
+        private const string DebugHotkeyNodeName = "ModListHider_DebugHotkeyWatcher";
+
         [ModuleInitializer]
         public static void Initialize()
         {
@@ -28,13 +32,13 @@ namespace ModListHider
 
                 GD.Print($"[ModListHider] VanillaMode={Config.ModListHiderConfig.Instance.VanillaMode}, "
                     + $"HiddenMods={Config.ModListHiderConfig.Instance.HiddenModIds.Count}, "
+                    + $"DebugMode={Config.ModListHiderConfig.Instance.DebugMode}, "
                     + $"HarmonyPatches={patchCount}");
 
                 // Start Vanilla Mode injector
                 try
                 {
                     GD.Print("[ModListHider] Creating VanillaModeToggleInjector...");
-                    var injector = new UI.VanillaModeToggleInjector();
                     Callable.From(() =>
                     {
                         try
@@ -42,6 +46,16 @@ namespace ModListHider
                             var sceneTree = Engine.GetMainLoop() as SceneTree;
                             if (sceneTree != null)
                             {
+                                if (sceneTree.Root.FindChild(VanillaInjectorNodeName, true, false) != null)
+                                {
+                                    GD.Print("[ModListHider] VanillaModeToggleInjector already exists, skipping.");
+                                    return;
+                                }
+
+                                var injector = new UI.VanillaModeToggleInjector
+                                {
+                                    Name = VanillaInjectorNodeName
+                                };
                                 sceneTree.Root.AddChild(injector);
                                 GD.Print("[ModListHider] VanillaModeToggleInjector added to tree");
                             }
@@ -61,7 +75,6 @@ namespace ModListHider
                 try
                 {
                     GD.Print("[ModListHider] Creating ModMenuRowIconInjector...");
-                    var injector = new UI.ModMenuRowIconInjector();
                     Callable.From(() =>
                     {
                         try
@@ -69,6 +82,16 @@ namespace ModListHider
                             var sceneTree = Engine.GetMainLoop() as SceneTree;
                             if (sceneTree != null)
                             {
+                                if (sceneTree.Root.FindChild(RowInjectorNodeName, true, false) != null)
+                                {
+                                    GD.Print("[ModListHider] ModMenuRowIconInjector already exists, skipping.");
+                                    return;
+                                }
+
+                                var injector = new UI.ModMenuRowIconInjector
+                                {
+                                    Name = RowInjectorNodeName
+                                };
                                 sceneTree.Root.AddChild(injector);
                                 GD.Print("[ModListHider] ModMenuRowIconInjector added to tree");
                             }
@@ -82,6 +105,37 @@ namespace ModListHider
                 catch (Exception ex)
                 {
                     GD.PrintErr($"[ModListHider] StartModMenuRowIconInjector failed: {ex.Message}");
+                }
+
+                // Debug hotkey watcher (Ctrl+Shift+F8)
+                try
+                {
+                    Callable.From(() =>
+                    {
+                        try
+                        {
+                            var sceneTree = Engine.GetMainLoop() as SceneTree;
+                            if (sceneTree == null) return;
+
+                            if (sceneTree.Root.FindChild(DebugHotkeyNodeName, true, false) != null)
+                                return;
+
+                            var watcher = new UI.DebugHotkeyWatcher
+                            {
+                                Name = DebugHotkeyNodeName
+                            };
+                            sceneTree.Root.AddChild(watcher);
+                            GD.Print("[ModListHider] DebugHotkeyWatcher added to tree");
+                        }
+                        catch (Exception ex2)
+                        {
+                            GD.PrintErr($"[ModListHider] Failed to add DebugHotkeyWatcher: {ex2.Message}");
+                        }
+                    }).CallDeferred();
+                }
+                catch (Exception ex)
+                {
+                    GD.PrintErr($"[ModListHider] StartDebugHotkeyWatcher failed: {ex.Message}");
                 }
             }
             catch (Exception ex)
