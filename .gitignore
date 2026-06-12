@@ -2,3 +2,5 @@
 *.pdb
 *.runtimeconfig.json
 *.deps.json
+toRelease/
+torelease/
