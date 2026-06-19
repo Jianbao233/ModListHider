@@ -12,11 +12,11 @@ using System.Reflection;
 
 [assembly: System.Reflection.AssemblyCompanyAttribute("ModListHider")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("0.3.1")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.3.1+8263e53524d69199cebc2f93cdd8f04fdd9ac94f")]
+[assembly: System.Reflection.AssemblyFileVersionAttribute("0.3.2")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.3.2+3a1baba3eafd9cc58a223bb2e1f66278e2c8926e")]
 [assembly: System.Reflection.AssemblyProductAttribute("ModListHider")]
 [assembly: System.Reflection.AssemblyTitleAttribute("ModListHider")]
-[assembly: System.Reflection.AssemblyVersionAttribute("0.3.1")]
+[assembly: System.Reflection.AssemblyVersionAttribute("0.3.2")]
 
 // 由 MSBuild WriteCodeFragment 类生成。
 

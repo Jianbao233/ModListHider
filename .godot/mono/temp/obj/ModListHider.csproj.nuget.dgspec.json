@@ -54,6 +54,11 @@
               "version": "[4.5.1, )",
               "autoReferenced": true
             },
+            "GodotSharpEditor": {
+              "target": "Package",
+              "version": "[4.5.1, )",
+              "autoReferenced": true
+            },
             "Lib.Harmony": {
               "target": "Package",
               "version": "[2.3.3, )"

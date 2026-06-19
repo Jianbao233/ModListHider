@@ -8,10 +8,13 @@ namespace ModListHider.UI
 {
     /// <summary>
     /// Per-row hide icon that anchors to the folder button and stays within ModsBorder.
+    /// 重构后：
+    /// - 不再使用 _Process 每 0.20s 持续重计算布局；
+    /// - 改为 _Ready 时一次性定位，并监听父行 Resized 信号在尺寸变化时重新定位；
+    /// - 保留 RefreshLayout 公开方法供外部按需调用。
     /// </summary>
     public partial class HideIconNode : Control
     {
-        private const float LayoutRefreshInterval = 0.20f;
         private const float MinIconSize = 24f;
         private const float MaxIconSize = 48f;
 
@@ -19,7 +22,8 @@ namespace ModListHider.UI
         private static Texture2D? _openIconTex;
         private static Texture2D? _closedIconTex;
 
-        private float _layoutTimer;
+        private Control? _parentRow;
+        private Action? _parentResizedHandler;
 
         public string ModId { get; set; } = "";
         public bool IsHiddenState { get; private set; }
@@ -30,20 +34,17 @@ namespace ModListHider.UI
             MouseDefaultCursorShape = CursorShape.PointingHand;
             FocusMode = FocusModeEnum.None;
             CustomMinimumSize = new Vector2(48, 48);
-            SetProcess(true);
+
             EnsureTexturesLoaded();
             UpdateVisuals();
+
+            HookParentResized();
             Callable.From(RepositionAfterParentLayout).CallDeferred();
         }
 
-        public override void _Process(double delta)
+        public override void _ExitTree()
         {
-            _layoutTimer += (float)delta;
-            if (_layoutTimer < LayoutRefreshInterval)
-                return;
-
-            _layoutTimer = 0f;
-            ApplyAnchorsAndOffsets();
+            UnhookParentResized();
         }
 
         public override void _Draw()
@@ -59,7 +60,6 @@ namespace ModListHider.UI
                 return;
             }
 
-            // Fallback to vector eye if PNG was not packaged.
             var col = IsHiddenState
                 ? new Color(0.62f, 0.62f, 0.62f, 1.0f)
                 : Colors.White;
@@ -103,6 +103,32 @@ namespace ModListHider.UI
                 GD.Print($"[ModListHider] Toggled '{ModId}' hidden={IsHiddenState}");
                 AcceptEvent();
             }
+        }
+
+        private void HookParentResized()
+        {
+            _parentRow = GetParent() as Control;
+            if (_parentRow == null) return;
+
+            _parentResizedHandler = OnParentResized;
+            _parentRow.Resized += _parentResizedHandler;
+        }
+
+        private void UnhookParentResized()
+        {
+            if (_parentRow != null && _parentResizedHandler != null)
+            {
+                try { _parentRow.Resized -= _parentResizedHandler; }
+                catch { /* parent may be already disposed */ }
+            }
+            _parentRow = null;
+            _parentResizedHandler = null;
+        }
+
+        private void OnParentResized()
+        {
+            ApplyAnchorsAndOffsets();
+            QueueRedraw();
         }
 
         private static void EnsureTexturesLoaded()
@@ -193,7 +219,6 @@ namespace ModListHider.UI
                 x = folder.Position.X - iconSize - gap;
                 y = folder.Position.Y + (folder.Size.Y - iconSize) * 0.5f;
 
-                // Never cross into folder area.
                 var folderMaxRight = folder.Position.X - 2f;
                 if (x + iconSize > folderMaxRight)
                     x = folderMaxRight - iconSize;
@@ -221,38 +246,12 @@ namespace ModListHider.UI
             OffsetRight = x + iconSize;
             OffsetBottom = y + iconSize;
 
-            var inBorder = IsInsideModsBorder(row, x, y, iconSize);
-            Visible = inBorder;
+            Visible = true;
 
             if (DebugLog.Enabled && IsInsideTree())
             {
                 DebugLog.Info(
-                    $"HideIcon layout mod={ModId} row={row.Name} rowSize={row.Size} icon=({OffsetLeft},{OffsetTop},{iconSize}) inBorder={inBorder} tick={tickbox?.Name} folder={folder?.Name}");
-            }
-        }
-
-        private static bool IsInsideModsBorder(Control row, float x, float y, float iconSize)
-        {
-            try
-            {
-                var root = row.GetTree()?.Root;
-                if (root == null)
-                    return true;
-
-                var border = root.FindChild("ModsBorder", true, false) as Control;
-                if (border == null || border.Size.X < 12f || border.Size.Y < 12f)
-                    return true;
-
-                var borderRect = new Rect2(border.GlobalPosition, border.Size).Grow(-1f);
-                var iconRect = new Rect2(
-                    row.GlobalPosition + new Vector2(x, y),
-                    new Vector2(iconSize, iconSize));
-
-                return borderRect.Encloses(iconRect);
-            }
-            catch
-            {
-                return true;
+                    $"HideIcon layout mod={ModId} row={row.Name} rowSize={row.Size} icon=({OffsetLeft},{OffsetTop},{iconSize}) tick={tickbox?.Name} folder={folder?.Name}");
             }
         }
 
@@ -280,7 +279,9 @@ namespace ModListHider.UI
                     continue;
 
                 var name = c.Name.ToString();
-                if (name.IndexOf("folder", StringComparison.OrdinalIgnoreCase) < 0)
+                if (name.IndexOf("folder", StringComparison.OrdinalIgnoreCase) < 0
+                    && name.IndexOf("platform", StringComparison.OrdinalIgnoreCase) < 0
+                    && name.IndexOf("icon", StringComparison.OrdinalIgnoreCase) < 0)
                     continue;
                 if (c.Size.X < 12f || c.Size.Y < 12f)
                     continue;
@@ -299,7 +300,6 @@ namespace ModListHider.UI
             if (tickbox == null)
                 return null;
 
-            // Fallback: nearest square-ish control immediately left of Tickbox.
             Control? geoBest = null;
             foreach (var child in parent.GetChildren())
             {
@@ -386,7 +386,6 @@ namespace ModListHider.UI
             }
             catch
             {
-                // Audio is optional.
             }
         }
     }
