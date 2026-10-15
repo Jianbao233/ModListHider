@@ -5,3 +5,8 @@
 toRelease/
 torelease/
 release/
+
+# Godot and .NET generated output
+.godot/
+bin/
+obj/
